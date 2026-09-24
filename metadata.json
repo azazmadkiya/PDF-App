@@ -1,0 +1,7 @@
+{
+  "name": "PDF App",
+  "description": "Privacy-first local PDF toolkit for viewing, merging, splitting, signing, watermarking, and converting PDFs entirely on device.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
