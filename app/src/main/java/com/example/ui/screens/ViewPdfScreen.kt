@@ -8,6 +8,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -20,6 +21,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -44,18 +47,39 @@ fun ViewPdfScreen(
     var fileSizeStr by remember { mutableStateOf("") }
     var isGalleryView by remember { mutableStateOf(false) }
 
+    // Zoom & Pan state
+    var scale by remember { mutableStateOf(1f) }
+    var offsetX by remember { mutableStateOf(0f) }
+    var offsetY by remember { mutableStateOf(0f) }
+
+    val incomingUri by viewModel.incomingPdfUri.collectAsState()
+
+    fun loadUri(uri: Uri) {
+        selectedUri = uri
+        val count = PdfUtils.getPageCount(context, uri)
+        pageCount = count
+        currentPage = 0
+        fileName = uri.lastPathSegment ?: "Document.pdf"
+        fileSizeStr = PdfUtils.getFileSize(context, uri)
+        scale = 1f
+        offsetX = 0f
+        offsetY = 0f
+        if (count > 0) {
+            currentBitmap = PdfUtils.renderPageToBitmap(context, uri, 0, 1000, 1414)
+        }
+        viewModel.addHistory(fileName, uri.toString(), "Viewed")
+    }
+
+    LaunchedEffect(incomingUri) {
+        incomingUri?.let { uri ->
+            loadUri(uri)
+            viewModel.setIncomingPdfUri(null)
+        }
+    }
+
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
-            selectedUri = uri
-            val count = PdfUtils.getPageCount(context, uri)
-            pageCount = count
-            currentPage = 0
-            fileName = uri.lastPathSegment ?: "Document.pdf"
-            fileSizeStr = PdfUtils.getFileSize(context, uri)
-            if (count > 0) {
-                currentBitmap = PdfUtils.renderPageToBitmap(context, uri, 0, 1000, 1414)
-            }
-            viewModel.addHistory(fileName, uri.toString(), "Viewed")
+            loadUri(uri)
         }
     }
 
@@ -66,6 +90,9 @@ fun ViewPdfScreen(
     }
 
     LaunchedEffect(currentPage, selectedUri) {
+        scale = 1f
+        offsetX = 0f
+        offsetY = 0f
         selectedUri?.let { uri ->
             if (pageCount > 0 && !isGalleryView) {
                 currentBitmap = PdfUtils.renderPageToBitmap(context, uri, currentPage, 1000, 1414)
@@ -200,17 +227,93 @@ fun ViewPdfScreen(
                             .fillMaxWidth()
                             .padding(16.dp)
                             .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                            .pointerInput(Unit) {
+                                detectTransformGestures { _, pan, zoom, _ ->
+                                    scale = (scale * zoom).coerceIn(1f, 5f)
+                                    if (scale == 1f) {
+                                        offsetX = 0f
+                                        offsetY = 0f
+                                    } else {
+                                        offsetX += pan.x
+                                        offsetY += pan.y
+                                    }
+                                }
+                            },
                         contentAlignment = Alignment.Center
                     ) {
                         if (currentBitmap != null) {
                             Image(
                                 bitmap = currentBitmap!!.asImageBitmap(),
                                 contentDescription = "PDF Page",
-                                modifier = Modifier.fillMaxSize()
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer(
+                                        scaleX = scale,
+                                        scaleY = scale,
+                                        translationX = offsetX,
+                                        translationY = offsetY
+                                    )
                             )
                         } else {
                             CircularProgressIndicator()
+                        }
+
+                        // Zoom Controls Overlay
+                        if (currentBitmap != null) {
+                            Surface(
+                                tonalElevation = 6.dp,
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .padding(12.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    IconButton(
+                                        onClick = {
+                                            scale = (scale - 0.5f).coerceIn(1f, 5f)
+                                            if (scale == 1f) {
+                                                offsetX = 0f
+                                                offsetY = 0f
+                                            }
+                                        },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(Icons.Default.Remove, contentDescription = "Zoom Out", modifier = Modifier.size(18.dp))
+                                    }
+                                    Text(
+                                        text = "${(scale * 100).toInt()}%",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 4.dp)
+                                    )
+                                    IconButton(
+                                        onClick = {
+                                            scale = (scale + 0.5f).coerceIn(1f, 5f)
+                                        },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(Icons.Default.Add, contentDescription = "Zoom In", modifier = Modifier.size(18.dp))
+                                    }
+                                    if (scale > 1f) {
+                                        IconButton(
+                                            onClick = {
+                                                scale = 1f
+                                                offsetX = 0f
+                                                offsetY = 0f
+                                            },
+                                            modifier = Modifier.size(36.dp)
+                                        ) {
+                                            Icon(Icons.Default.Refresh, contentDescription = "Reset Zoom", modifier = Modifier.size(18.dp))
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
 

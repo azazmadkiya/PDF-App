@@ -1,5 +1,6 @@
 package com.example.ui
 
+import android.net.Uri
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -17,6 +18,13 @@ class PdfViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _isDarkMode = MutableStateFlow(false)
     val isDarkMode: StateFlow<Boolean> = _isDarkMode.asStateFlow()
+
+    private val _incomingPdfUri = MutableStateFlow<Uri?>(null)
+    val incomingPdfUri: StateFlow<Uri?> = _incomingPdfUri.asStateFlow()
+
+    fun setIncomingPdfUri(uri: Uri?) {
+        _incomingPdfUri.value = uri
+    }
 
     fun toggleDarkMode() {
         _isDarkMode.value = !_isDarkMode.value
